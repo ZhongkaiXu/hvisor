@@ -59,6 +59,45 @@ impl Zone {
         info!("VM stage 2 memory set: {:#x?}", self.gpm);
         Ok(())
     }
+
+    pub fn iommu_pt_init(
+        &mut self,
+        mem_regions: &[HvConfigMemoryRegion],
+        hv_config: &HvArchZoneConfig,
+    ) -> HvResult {
+        // Create a new stage 2 page table for iommu.
+        // Only map the memory regions that are possible to be accessed by devices as DMA buffer.
+
+        let pt = self.iommu_pt.as_mut().unwrap();
+        let flags = MemFlags::READ | MemFlags::WRITE;
+        for mem_region in mem_regions.iter() {
+            match mem_region.mem_type {
+                MEM_TYPE_RAM => {pt.insert(MemoryRegion::new_with_offset_mapper(
+                    mem_region.virtual_start as GuestPhysAddr,
+                    mem_region.physical_start as HostPhysAddr,
+                    mem_region.size as _,
+                    flags,
+                ))?;
+            info!("iommu map: vaddr:{} - paddr:{}", mem_region.virtual_start, mem_region.physical_start);},
+                _ => {
+                    // pass
+                }
+            }
+        }
+
+        if hv_config.gits_size != 0 {
+            // map gits
+            pt.insert(MemoryRegion::new_with_offset_mapper(
+                hv_config.gits_base as GuestPhysAddr,
+                hv_config.gits_base as HostPhysAddr,
+                hv_config.gits_size as _,
+                flags | MemFlags::IO,
+            ))?;
+            info!("iommu map: vaddr:{} - paddr:{}", hv_config.gits_base, hv_config.gits_base);
+        }
+
+        Ok(())
+    }
 }
 
 #[repr(C)]

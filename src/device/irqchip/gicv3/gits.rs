@@ -37,7 +37,7 @@ pub const GITS_UMSIR: usize = 0x0048; // unmapped msi
 pub const GITS_CBASER: usize = 0x0080; // the addr of command queue
 pub const GITS_CWRITER: usize = 0x0088; // rw, write an command to the cmdq, write this reg to tell hw
 pub const GITS_CREADR: usize = 0x0090; // read-only, hardware changes it
-pub const GITS_BASER: usize = 0x0100; // itt, desc
+pub const GITS_BASER: usize = 0x0100; // device table, itt, desc
 pub const GITS_COLLECTION_BASER: usize = GITS_BASER + 0x8;
 pub const GITS_TRANSLATER: usize = 0x10000 + 0x0040; // to signal an interrupt, written by devices
 
@@ -121,8 +121,8 @@ pub struct Cmdq {
     writer: usize,
     frame: Frame,
 
-    phy_base_list: [usize; MAX_ZONE_NUM],
-    cbaser_list: [usize; MAX_ZONE_NUM],
+    phy_base_list: [usize; MAX_ZONE_NUM], // the real phy addr for vm cmdq
+    cbaser_list: [usize; MAX_ZONE_NUM],   // the v register for vm
     creadr_list: [usize; MAX_ZONE_NUM],
     cwriter_list: [usize; MAX_ZONE_NUM],
     cmdq_page_num: [usize; MAX_ZONE_NUM],
@@ -131,7 +131,7 @@ pub struct Cmdq {
 impl Cmdq {
     fn new() -> Self {
         let f = Frame::new_contiguous_with_base(CMDQ_PAGES_NUM, 16).unwrap();
-        info!("its cmdq base: 0x{:x}", f.start_paddr());
+        debug!("its cmdq base: 0x{:x}", f.start_paddr());
         let r = Self {
             phy_addr: f.start_paddr(),
             readr: 0,
@@ -164,9 +164,15 @@ impl Cmdq {
     fn set_cbaser(&mut self, zone_id: usize, value: usize) {
         assert!(zone_id < MAX_ZONE_NUM, "Invalid zone id!");
         self.cbaser_list[zone_id] = value;
-        self.phy_base_list[zone_id] = value & 0xffffffffff000;
+        let gpa_base = value & 0xffffffffff000;
+        unsafe {
+            let phy_base = match this_zone().read().gpm.page_table_query(gpa_base) {
+                Ok(p) => self.phy_base_list[zone_id] = p.0,
+                _ => {}
+            };
+        }
         self.cmdq_page_num[zone_id] = (value & 0xff) + 1; // get the page num
-        info!(
+        debug!(
             "zone_id: {}, cmdq base: {:#x}, page num: {}",
             zone_id, self.phy_base_list[zone_id], self.cmdq_page_num[zone_id]
         );
@@ -223,7 +229,7 @@ impl Cmdq {
                 new_cmd[2] &= !0xffffu64;
                 new_cmd[2] |= icid & 0xffff;
                 enable_one_lpi((event - 8192) as _);
-                info!(
+                debug!(
                     "MAPI cmd, for device {:#x}, event = intid = {:#x} -> vicid {:#x} (icid {:#x})",
                     id >> 32,
                     event,
@@ -233,10 +239,14 @@ impl Cmdq {
             }
             0x08 => {
                 let id = value[0] & 0xffffffff00000000;
-                let itt_base = (value[2] & 0x000fffffffffffff) >> 8;
-                trace!(
+                let itt_base = (value[2] & 0x000fffffffffffff) >> 8; // the lowest 8 bits are reserved
+                let phys_itt_base =
+                    unsafe { this_zone().read().gpm.page_table_query(itt_base as _).unwrap().0 };
+                new_cmd[2] &= !0x000fffffffffffffu64;
+                new_cmd[2] |= (phys_itt_base as u64) << 8;
+                info!(
                     "MAPD cmd, set ITT: {:#x} to device {:#x}",
-                    itt_base,
+                    phys_itt_base,
                     id >> 32
                 );
             }
@@ -250,7 +260,7 @@ impl Cmdq {
                 new_cmd[2] &= !0xffffu64;
                 new_cmd[2] |= icid & 0xffff;
                 enable_one_lpi((intid - 8192) as _);
-                info!(
+                debug!(
                     "MAPTI cmd, for device {:#x}, event {:#x} -> vicid {:#x} (icid {:#x}) + intid {:#x}",
                     id >> 32,
                     event,
@@ -266,7 +276,7 @@ impl Cmdq {
                 new_cmd[2] &= !0xffffu64;
                 new_cmd[2] |= icid & 0xffff;
                 let rd_base = (value[2] >> 16) & 0x7ffffffff;
-                info!(
+                debug!(
                     "MAPC cmd, vicid {:#x} (icid {:#x}) -> redist {:#x}",
                     vicid, icid, rd_base
                 );
@@ -369,7 +379,7 @@ pub fn gits_init() {
 }
 
 fn dt_list_init() {
-    info!("Virtual Device Tables init!");
+    debug!("Virtual Device Tables init!");
     let mut list = DT_LIST.write();
     if list.is_empty() {
         for _ in 0..MAX_ZONE_NUM {
@@ -379,7 +389,7 @@ fn dt_list_init() {
 }
 
 fn ct_list_init() {
-    info!("Virtual Collection Tables init!");
+    debug!("Virtual Collection Tables init!");
     let mut list = CT_LIST.write();
     if list.is_empty() {
         for _ in 0..MAX_ZONE_NUM {

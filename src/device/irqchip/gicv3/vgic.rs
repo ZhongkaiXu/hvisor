@@ -322,8 +322,21 @@ pub fn vgicv3_its_handler(mmio: &mut MMIOAccess, _arg: usize) -> HvResult {
                 trace!("read GITS_CBASER: {:#x}", mmio.value);
             }
         }
+        // v_dt_addr + 0x10000000;
         GITS_BASER => {
             if zone_id == 0 {
+                if mmio.is_write {
+                    let v_dt_addr = mmio.value & 0xfff_fff_fff_000usize;
+                    let phys_dt_trans =
+                        unsafe { this_zone().read().gpm.page_table_query(v_dt_addr) };
+                    match phys_dt_trans {
+                        Ok(p) => {
+                            mmio.value &= !0xfff_fff_fff_000usize;
+                            mmio.value |= p.0 as usize;
+                        }
+                        _ => {}
+                    }
+                }
                 mmio_perform_access(gits_base, mmio);
             } else {
                 if mmio.is_write {
@@ -340,6 +353,18 @@ pub fn vgicv3_its_handler(mmio: &mut MMIOAccess, _arg: usize) -> HvResult {
         }
         GITS_COLLECTION_BASER => {
             if zone_id == 0 {
+                if mmio.is_write {
+                    let v_ct_addr = mmio.value & 0xfff_fff_fff_000usize;
+                    let phys_ct_trans =
+                        unsafe { this_zone().read().gpm.page_table_query(v_ct_addr) };
+                    match phys_ct_trans {
+                        Ok(p) => {
+                            mmio.value &= !0xfff_fff_fff_000usize;
+                            mmio.value |= p.0 as usize;
+                        }
+                        _ => {}
+                    }
+                }
                 mmio_perform_access(gits_base, mmio);
             } else {
                 if mmio.is_write {
