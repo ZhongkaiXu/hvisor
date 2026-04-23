@@ -17,7 +17,8 @@
 use crate::{
     arch::ipi::{arch_check_events, arch_prepare_send_event, arch_send_event},
     consts::{
-        IPI_EVENT_CLEAR_INJECT_IRQ, IPI_EVENT_SEND_IPI, IPI_EVENT_UPDATE_HART_LINE, MAX_CPU_NUM,
+        IPI_EVENT_CLEAR_INJECT_IRQ, IPI_EVENT_DWC_MSI_INJECT, IPI_EVENT_SEND_IPI,
+        IPI_EVENT_UPDATE_HART_LINE, MAX_CPU_NUM,
     },
     cpu_data::this_cpu_data,
     device::{irqchip::inject_irq, virtio_trampoline::handle_virtio_irq},
@@ -101,6 +102,18 @@ pub fn check_events() -> bool {
         }
         Some(IPI_EVENT_WAKEUP_VIRTIO_DEVICE) => {
             inject_irq(IRQ_WAKEUP_VIRTIO_DEVICE, false);
+            true
+        }
+        Some(IPI_EVENT_DWC_MSI_INJECT) => {
+            #[cfg(all(
+                target_arch = "aarch64",
+                feature = "gicv3",
+                feature = "dwc_pcie",
+                feature = "dwc_msi"
+            ))]
+            {
+                crate::pci::dwc_msi::handle_dwc_msi_inject_event();
+            }
             true
         }
         Some(IPI_EVENT_CLEAR_INJECT_IRQ)

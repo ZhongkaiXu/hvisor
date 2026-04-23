@@ -88,6 +88,7 @@ pub fn hv_end() -> VirtAddr {
 pub const IPI_EVENT_CLEAR_INJECT_IRQ: usize = 4;
 pub const IPI_EVENT_UPDATE_HART_LINE: usize = 5;
 pub const IPI_EVENT_SEND_IPI: usize = 6;
+pub const IPI_EVENT_DWC_MSI_INJECT: usize = 7;
 
 extern "C" {
     /// Entry point of the hypervisor written in assembly.
