@@ -1821,7 +1821,7 @@ impl<B: BarAllocator> PciIterator<B> {
 
                 let _ = node.capability_enumerate();
                 node.ext_capability_enumerate();
-                #[cfg(feature = "sriov")]
+                #[cfg(sriov)]
                 {
                     let upstream = self.stack.last().filter(|b| !b.mmio.is_placeholder());
                     let _ = node.build_sriov_info(upstream);
@@ -1852,7 +1852,7 @@ impl<B: BarAllocator> PciIterator<B> {
 
                 let _ = node.capability_enumerate();
                 node.ext_capability_enumerate();
-                #[cfg(feature = "sriov")]
+                #[cfg(sriov)]
                 {
                     let upstream = self.stack.last().filter(|b| !b.mmio.is_placeholder());
                     let _ = node.build_sriov_info(upstream);
